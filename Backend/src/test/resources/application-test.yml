@@ -1,0 +1,53 @@
+# 测试环境配置 - 使用 H2 内存数据库
+spring:
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:testdb;MODE=MySQL;DB_CLOSE_DELAY=-1;NON_KEYWORDS=USER;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
+    username: sa
+    password:
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-test.sql
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+sa-token:
+  token-name: satoken
+  token-prefix: LabelHub
+  timeout: 7200
+  active-timeout: 1800
+  is-concurrent: true
+  is-share: false
+  is-log: false
+  is-read-header: true
+  is-read-cookie: false
+
+labelhub:
+  minio:
+    endpoint: http://127.0.0.1:9000
+    public-url: http://127.0.0.1:9000
+    access-key: test
+    secret-key: test123456
+  agent:
+    base-url: http://127.0.0.1:5001
+
+logging:
+  level:
+    com.labelhub: DEBUG

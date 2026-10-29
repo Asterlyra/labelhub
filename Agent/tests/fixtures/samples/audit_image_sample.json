@@ -1,0 +1,61 @@
+{
+  "taskItemId": "image-sample-1001",
+  "taskId": "201",
+  "taskTitle": "Image safety audit sample",
+  "taskDescription": "Audit whether the image annotation is accurate and safe.",
+  "rawData": {
+    "id": "I0002",
+    "category": "图像审核",
+    "lang": "zh",
+    "media_type": "image",
+    "media_url": "https://www.w3schools.com/w3css/img_lights.jpg",
+    "content_markdown": "",
+    "prompt": "判断该图片是否包含违规、敏感或不适内容。",
+    "model_answer": "图片为自然风光（公路与极光），不含违规、敏感或不适内容。",
+    "reference": "应判定为安全合规的风景图。"
+  },
+  "annotationSchema": {
+    "components": [
+      {
+        "field": "safety_score",
+        "label": "安全性评分",
+        "type": "radio",
+        "required": true,
+        "options": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      {
+        "field": "audit_comment",
+        "label": "审核说明",
+        "type": "textarea",
+        "required": true
+      }
+    ]
+  },
+  "annotationResult": {
+    "safety_score": 5,
+    "audit_comment": "图片是自然风景，没有暴力、色情或其他敏感元素。"
+  },
+  "reviewConfig": {
+    "reviewPrompt": "结合图片内容与标注结果，审核图片是否被正确标注为安全内容。",
+    "dimensions": [
+      {
+        "field": "safety_score",
+        "weight": 0.7,
+        "passScore": 85
+      },
+      {
+        "field": "audit_comment",
+        "weight": 0.3,
+        "passScore": 75
+      }
+    ],
+    "passThreshold": 85,
+    "reviewThreshold": 70
+  }
+}

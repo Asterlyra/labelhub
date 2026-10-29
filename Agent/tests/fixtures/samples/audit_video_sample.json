@@ -1,0 +1,61 @@
+{
+  "taskItemId": "video-sample-1001",
+  "taskId": "202",
+  "taskTitle": "Video compliance audit sample",
+  "taskDescription": "Audit whether the video annotation matches the visual evidence.",
+  "rawData": {
+    "id": "V0001",
+    "category": "视频审核",
+    "lang": "zh",
+    "media_type": "video",
+    "media_url": "http://vjs.zencdn.net/v/oceans.mp4",
+    "content_markdown": "",
+    "prompt": "请观看视频，判断是否包含违规或不适画面，并简述视频主题。",
+    "model_answer": "视频为海洋/海底生物的高清纪录画面，主题为海洋生态，未发现违规或不适内容。",
+    "reference": "海洋题材纪录短片，安全合规。"
+  },
+  "annotationSchema": {
+    "components": [
+      {
+        "field": "compliance_score",
+        "label": "合规性评分",
+        "type": "radio",
+        "required": true,
+        "options": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      {
+        "field": "topic_summary",
+        "label": "主题概述",
+        "type": "textarea",
+        "required": true
+      }
+    ]
+  },
+  "annotationResult": {
+    "compliance_score": 5,
+    "topic_summary": "视频展示海洋与海底生物画面，整体安全合规。"
+  },
+  "reviewConfig": {
+    "reviewPrompt": "结合视频关键帧与标注结果，审核视频内容合规性和主题概述是否准确。",
+    "dimensions": [
+      {
+        "field": "compliance_score",
+        "weight": 0.6,
+        "passScore": 85
+      },
+      {
+        "field": "topic_summary",
+        "weight": 0.4,
+        "passScore": 80
+      }
+    ],
+    "passThreshold": 85,
+    "reviewThreshold": 70
+  }
+}

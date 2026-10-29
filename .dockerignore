@@ -1,0 +1,10 @@
+.git
+.idea
+.pytest_cache
+Frontend/node_modules
+Frontend/dist
+Backend/target
+Agent/.venv
+Agent/.pytest_cache
+**/__pycache__
+**/*.pyc

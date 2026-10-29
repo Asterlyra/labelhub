@@ -1,0 +1,331 @@
+# 一键部署 三个指令按顺序执行
+# 构建镜像
+# docker compose --env-file deploy/docker.env build
+# 数据库迁移
+# docker compose --profile migrate --env-file deploy/docker.env run --rm agent-migrate
+# 启动、重启服务
+# docker compose --env-file deploy/docker.env up -d
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: labelhub-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-labelhub}
+      TZ: ${TZ:-Asia/Shanghai}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./deploy/mysql/init/00-create-agent-db.sql:/docker-entrypoint-initdb.d/00-create-agent-db.sql:ro
+      - ./Backend/sql/labelhub_schema.sql:/docker-entrypoint-initdb.d/01-labelhub-schema.sql:ro
+      - ./Backend/sql/labelhub_data.sql:/docker-entrypoint-initdb.d/02-labelhub-data.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: labelhub-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?Set REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: labelhub-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-labelhub}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: labelhub-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-labelhub}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    logging: *default-logging
+
+  minio-init:
+    image: minio/mc
+    container_name: labelhub-minio-init
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-labelhub}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+          echo "waiting for minio to accept connections...";
+          sleep 2;
+        done &&
+        mc mb --ignore-existing local/annotation &&
+        mc anonymous set public local/annotation &&
+        mc mb --ignore-existing local/dataset &&
+        mc anonymous set public local/dataset &&
+        mc mb --ignore-existing local/export &&
+        mc anonymous set public local/export &&
+        mc mb --ignore-existing local/template &&
+        mc anonymous set public local/template
+    logging: *default-logging
+
+  backend:
+    build:
+      context: .
+      dockerfile: Backend/Dockerfile
+    container_name: labelhub-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/labelhub?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD}
+      SPRING_REDIS_HOST: ${SPRING_REDIS_HOST:-redis}
+      SPRING_REDIS_PORT: ${SPRING_REDIS_PORT:-6379}
+      SPRING_REDIS_DATABASE: ${SPRING_REDIS_DATABASE:-0}
+      SPRING_REDIS_PASSWORD: ${SPRING_REDIS_PASSWORD:?Set SPRING_REDIS_PASSWORD}
+      SPRING_RABBITMQ_HOST: ${SPRING_RABBITMQ_HOST:-rabbitmq}
+      SPRING_RABBITMQ_PORT: ${SPRING_RABBITMQ_PORT:-5672}
+      SPRING_RABBITMQ_USERNAME: ${SPRING_RABBITMQ_USERNAME:-labelhub}
+      SPRING_RABBITMQ_PASSWORD: ${SPRING_RABBITMQ_PASSWORD:?Set SPRING_RABBITMQ_PASSWORD}
+      SPRING_RABBITMQ_VHOST: ${SPRING_RABBITMQ_VHOST:-/}
+      LABELHUB_UPLOAD_PATH: ${LABELHUB_UPLOAD_PATH:-/app/uploads}
+      LABELHUB_MINIO_ENDPOINT: ${LABELHUB_MINIO_ENDPOINT:-http://minio:9000}
+      LABELHUB_MINIO_PUBLIC_URL: ${LABELHUB_MINIO_PUBLIC_URL:-http://127.0.0.1:9000}
+      LABELHUB_MINIO_ACCESS_KEY: ${LABELHUB_MINIO_ACCESS_KEY:-labelhub}
+      LABELHUB_MINIO_SECRET_KEY: ${LABELHUB_MINIO_SECRET_KEY:?Set LABELHUB_MINIO_SECRET_KEY}
+      LABELHUB_AGENT_TOKEN: ${LABELHUB_AGENT_TOKEN:?Set LABELHUB_AGENT_TOKEN}
+      LABELHUB_AGENT_BASE_URL: ${LABELHUB_AGENT_BASE_URL:-http://agent-web:5001}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:${SERVER_PORT:-8080}"
+    volumes:
+      - backend_uploads:/app/uploads
+    logging: *default-logging
+
+  agent-web:
+    build:
+      context: .
+      dockerfile: Agent/Dockerfile
+      args:
+        PIP_INDEX_URL: ${AGENT_PIP_INDEX_URL:-https://pypi.org/simple}
+        PIP_EXTRA_INDEX_URL: ${AGENT_PIP_EXTRA_INDEX_URL:-}
+        PIP_TRUSTED_HOST: ${AGENT_PIP_TRUSTED_HOST:-}
+        PIP_DEFAULT_TIMEOUT: ${AGENT_PIP_DEFAULT_TIMEOUT:-120}
+        PIP_RETRIES: ${AGENT_PIP_RETRIES:-10}
+    container_name: labelhub-agent-web
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: ${FLASK_PORT:-5001}
+      AI_AUDIT_PROVIDER: ${AI_AUDIT_PROVIDER:-openai_compatible}
+      AI_AUDIT_USE_MOCK: ${AI_AUDIT_USE_MOCK:-false}
+      AI_AUDIT_BASE_URL: ${AI_AUDIT_BASE_URL:-}
+      AI_AUDIT_API_KEY: ${AI_AUDIT_API_KEY:-}
+      AI_AUDIT_MODEL: ${AI_AUDIT_MODEL:-gpt-4o-mini}
+      AI_AUDIT_TEMPERATURE: ${AI_AUDIT_TEMPERATURE:-0}
+      AI_AUDIT_MEDIA_DOWNLOAD_TIMEOUT: ${AI_AUDIT_MEDIA_DOWNLOAD_TIMEOUT:-10}
+      AI_AUDIT_VIDEO_TIMEOUT: ${AI_AUDIT_VIDEO_TIMEOUT:-30}
+      AI_AUDIT_MAX_VISUAL_EVIDENCE: ${AI_AUDIT_MAX_VISUAL_EVIDENCE:-6}
+      LABELHUB_AGENT_TOKEN: ${LABELHUB_AGENT_TOKEN:?Set LABELHUB_AGENT_TOKEN}
+      LABELHUB_MEDIA_ALLOWED_HOSTS: ${LABELHUB_MEDIA_ALLOWED_HOSTS:-}
+      AGENT_ENABLE_RABBITMQ_CONSUMER: "false"
+      AGENT_MYSQL_HOST: ${AGENT_MYSQL_HOST:-mysql}
+      AGENT_MYSQL_PORT: ${AGENT_MYSQL_PORT:-3306}
+      AGENT_MYSQL_USER: ${AGENT_MYSQL_USER:-root}
+      AGENT_MYSQL_PASSWORD: ${AGENT_MYSQL_PASSWORD:?Set AGENT_MYSQL_PASSWORD}
+      AGENT_MYSQL_DATABASE: ${AGENT_MYSQL_DATABASE:-labelhub_agent}
+      AGENT_MYSQL_CHARSET: ${AGENT_MYSQL_CHARSET:-utf8mb4}
+      AGENT_MYSQL_CONNECT_TIMEOUT: ${AGENT_MYSQL_CONNECT_TIMEOUT:-5}
+      AGENT_MYSQL_POOL_SIZE: ${AGENT_MYSQL_POOL_SIZE:-8}
+      AGENT_MYSQL_POOL_TIMEOUT: ${AGENT_MYSQL_POOL_TIMEOUT:-5}
+      AGENT_MYSQL_POOL_RECYCLE_SECONDS: ${AGENT_MYSQL_POOL_RECYCLE_SECONDS:-1800}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-labelhub}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_AI_REVIEW_QUEUE: ${RABBITMQ_AI_REVIEW_QUEUE:-ai.review.queue}
+      RABBITMQ_PREFETCH_COUNT: ${RABBITMQ_PREFETCH_COUNT:-1}
+      RABBITMQ_WORKER_CONCURRENCY: ${RABBITMQ_WORKER_CONCURRENCY:-4}
+      RABBITMQ_HEARTBEAT: ${RABBITMQ_HEARTBEAT:-60}
+      RABBITMQ_BLOCKED_CONNECTION_TIMEOUT: ${RABBITMQ_BLOCKED_CONNECTION_TIMEOUT:-30}
+      RABBITMQ_REQUEUE_ON_FAILURE: ${RABBITMQ_REQUEUE_ON_FAILURE:-true}
+      RABBITMQ_MAX_RETRIES: ${RABBITMQ_MAX_RETRIES:-3}
+    logging: *default-logging
+
+  agent-worker:
+    build:
+      context: .
+      dockerfile: Agent/Dockerfile
+      args:
+        PIP_INDEX_URL: ${AGENT_PIP_INDEX_URL:-https://pypi.org/simple}
+        PIP_EXTRA_INDEX_URL: ${AGENT_PIP_EXTRA_INDEX_URL:-}
+        PIP_TRUSTED_HOST: ${AGENT_PIP_TRUSTED_HOST:-}
+        PIP_DEFAULT_TIMEOUT: ${AGENT_PIP_DEFAULT_TIMEOUT:-120}
+        PIP_RETRIES: ${AGENT_PIP_RETRIES:-10}
+    container_name: labelhub-agent-worker
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    command: ["python", "run_audit_worker.py"]
+    environment:
+      FLASK_PORT: ${FLASK_PORT:-5001}
+      AI_AUDIT_PROVIDER: ${AI_AUDIT_PROVIDER:-openai_compatible}
+      AI_AUDIT_USE_MOCK: ${AI_AUDIT_USE_MOCK:-false}
+      AI_AUDIT_BASE_URL: ${AI_AUDIT_BASE_URL:-}
+      AI_AUDIT_API_KEY: ${AI_AUDIT_API_KEY:-}
+      AI_AUDIT_MODEL: ${AI_AUDIT_MODEL:-gpt-4o-mini}
+      AI_AUDIT_TEMPERATURE: ${AI_AUDIT_TEMPERATURE:-0}
+      AI_AUDIT_MEDIA_DOWNLOAD_TIMEOUT: ${AI_AUDIT_MEDIA_DOWNLOAD_TIMEOUT:-10}
+      AI_AUDIT_VIDEO_TIMEOUT: ${AI_AUDIT_VIDEO_TIMEOUT:-30}
+      AI_AUDIT_MAX_VISUAL_EVIDENCE: ${AI_AUDIT_MAX_VISUAL_EVIDENCE:-6}
+      LABELHUB_MEDIA_ALLOWED_HOSTS: ${LABELHUB_MEDIA_ALLOWED_HOSTS:-}
+      AGENT_ENABLE_RABBITMQ_CONSUMER: "true"
+      AGENT_MYSQL_HOST: ${AGENT_MYSQL_HOST:-mysql}
+      AGENT_MYSQL_PORT: ${AGENT_MYSQL_PORT:-3306}
+      AGENT_MYSQL_USER: ${AGENT_MYSQL_USER:-root}
+      AGENT_MYSQL_PASSWORD: ${AGENT_MYSQL_PASSWORD:?Set AGENT_MYSQL_PASSWORD}
+      AGENT_MYSQL_DATABASE: ${AGENT_MYSQL_DATABASE:-labelhub_agent}
+      AGENT_MYSQL_CHARSET: ${AGENT_MYSQL_CHARSET:-utf8mb4}
+      AGENT_MYSQL_CONNECT_TIMEOUT: ${AGENT_MYSQL_CONNECT_TIMEOUT:-5}
+      AGENT_MYSQL_POOL_SIZE: ${AGENT_MYSQL_POOL_SIZE:-8}
+      AGENT_MYSQL_POOL_TIMEOUT: ${AGENT_MYSQL_POOL_TIMEOUT:-5}
+      AGENT_MYSQL_POOL_RECYCLE_SECONDS: ${AGENT_MYSQL_POOL_RECYCLE_SECONDS:-1800}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-labelhub}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_AI_REVIEW_QUEUE: ${RABBITMQ_AI_REVIEW_QUEUE:-ai.review.queue}
+      RABBITMQ_PREFETCH_COUNT: ${RABBITMQ_PREFETCH_COUNT:-1}
+      RABBITMQ_WORKER_CONCURRENCY: ${RABBITMQ_WORKER_CONCURRENCY:-4}
+      RABBITMQ_HEARTBEAT: ${RABBITMQ_HEARTBEAT:-60}
+      RABBITMQ_BLOCKED_CONNECTION_TIMEOUT: ${RABBITMQ_BLOCKED_CONNECTION_TIMEOUT:-30}
+      RABBITMQ_REQUEUE_ON_FAILURE: ${RABBITMQ_REQUEUE_ON_FAILURE:-true}
+      RABBITMQ_MAX_RETRIES: ${RABBITMQ_MAX_RETRIES:-3}
+      RABBITMQ_RECONNECT_BASE_DELAY_SECONDS: ${RABBITMQ_RECONNECT_BASE_DELAY_SECONDS:-1}
+      RABBITMQ_RECONNECT_MAX_DELAY_SECONDS: ${RABBITMQ_RECONNECT_MAX_DELAY_SECONDS:-30}
+      RABBITMQ_ERROR_LOG_INTERVAL_SECONDS: ${RABBITMQ_ERROR_LOG_INTERVAL_SECONDS:-30}
+    logging: *default-logging
+
+  agent-migrate:
+    profiles: ["migrate"]
+    build:
+      context: .
+      dockerfile: Agent/Dockerfile
+      args:
+        PIP_INDEX_URL: ${AGENT_PIP_INDEX_URL:-https://pypi.org/simple}
+        PIP_EXTRA_INDEX_URL: ${AGENT_PIP_EXTRA_INDEX_URL:-}
+        PIP_TRUSTED_HOST: ${AGENT_PIP_TRUSTED_HOST:-}
+        PIP_DEFAULT_TIMEOUT: ${AGENT_PIP_DEFAULT_TIMEOUT:-120}
+        PIP_RETRIES: ${AGENT_PIP_RETRIES:-10}
+    container_name: labelhub-agent-migrate
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: ["python", "run_migrations.py"]
+    environment:
+      AGENT_MYSQL_HOST: ${AGENT_MYSQL_HOST:-mysql}
+      AGENT_MYSQL_PORT: ${AGENT_MYSQL_PORT:-3306}
+      AGENT_MYSQL_USER: ${AGENT_MYSQL_USER:-root}
+      AGENT_MYSQL_PASSWORD: ${AGENT_MYSQL_PASSWORD:?Set AGENT_MYSQL_PASSWORD}
+      AGENT_MYSQL_DATABASE: ${AGENT_MYSQL_DATABASE:-labelhub_agent}
+      AGENT_MYSQL_CHARSET: ${AGENT_MYSQL_CHARSET:-utf8mb4}
+      AGENT_MYSQL_CONNECT_TIMEOUT: ${AGENT_MYSQL_CONNECT_TIMEOUT:-5}
+      AGENT_MYSQL_POOL_SIZE: ${AGENT_MYSQL_POOL_SIZE:-8}
+      AGENT_MYSQL_POOL_TIMEOUT: ${AGENT_MYSQL_POOL_TIMEOUT:-5}
+      AGENT_MYSQL_POOL_RECYCLE_SECONDS: ${AGENT_MYSQL_POOL_RECYCLE_SECONDS:-1800}
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        BACKEND_UPSTREAM: backend
+        BACKEND_INTERNAL_PORT: ${SERVER_PORT:-8080}
+    container_name: labelhub-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8102}:80"
+    logging: *default-logging
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  minio_data:
+  backend_uploads:

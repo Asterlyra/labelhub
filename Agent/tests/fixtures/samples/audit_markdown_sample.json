@@ -1,0 +1,59 @@
+{
+  "taskItemId": "markdown-sample-1001",
+  "taskId": "203",
+  "taskTitle": "Markdown multimodal audit sample",
+  "taskDescription": "Audit whether the markdown mixed-media annotation is complete and correct.",
+  "rawData": {
+    "id": "M0002",
+    "category": "图文质检",
+    "lang": "zh",
+    "media_type": "markdown",
+    "media_url": "",
+    "content_markdown": "## 媒体资源校验\\n\\n测试占位图：\\n\\n![测试占位图](https://dummyimage.com/600x400/4CAF50/fff&text=test)\\n\\n风景实拍图：\\n\\n![极光公路](https://www.w3schools.com/w3css/img_lights.jpg)\\n\\n演示视频：\\n\\n<video src=\"http://vjs.zencdn.net/v/oceans.mp4\" controls></video>",
+    "prompt": "判断该 Markdown 能否正确渲染，并标注其中的图片与视频数量。",
+    "model_answer": "可正常渲染，包含 2 张图片与 1 个视频，其中 1 张为占位测试图。",
+    "reference": "图片 2 张、视频 1 个；需指出含占位图。"
+  },
+  "annotationSchema": {
+    "components": [
+      {
+        "field": "render_check",
+        "label": "渲染判断",
+        "type": "radio",
+        "required": true,
+        "options": [
+          "pass",
+          "manual_review",
+          "reject"
+        ]
+      },
+      {
+        "field": "media_count_note",
+        "label": "媒体数量说明",
+        "type": "textarea",
+        "required": true
+      }
+    ]
+  },
+  "annotationResult": {
+    "render_check": "pass",
+    "media_count_note": "Markdown 可正常渲染，包含 2 张图片和 1 个视频，其中一张是占位测试图。"
+  },
+  "reviewConfig": {
+    "reviewPrompt": "结合 markdown 正文、内嵌图片和视频证据，审核渲染判断及媒体数量说明是否准确。",
+    "dimensions": [
+      {
+        "field": "render_check",
+        "weight": 0.5,
+        "passScore": 85
+      },
+      {
+        "field": "media_count_note",
+        "weight": 0.5,
+        "passScore": 80
+      }
+    ],
+    "passThreshold": 85,
+    "reviewThreshold": 70
+  }
+}

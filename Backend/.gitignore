@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.cache/
+.env
+venv/
+.venv/
+data/audit_configs.json
+data/audit_results.json
+data/batch_audit_jobs.json
+application-dev.yml
+/src/main/resources/application.yml
+/src/main/resources/application-local-server.yml

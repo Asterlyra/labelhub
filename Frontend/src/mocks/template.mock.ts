@@ -1,0 +1,73 @@
+import type { AnnotationTemplate } from '../types/template'
+
+export const hotTemplates: AnnotationTemplate[] = [
+  {
+    id: 'hot-text-intent',
+    name: '客服意图识别模板',
+    scene: '文本分类',
+    category: 'NLP',
+    fields: 8,
+    usageCount: 4280,
+    updatedAt: '2026-05-18',
+    owner: 'LabelHub',
+    tags: ['多分类', '质检规则', 'AI 预审'],
+  },
+  {
+    id: 'hot-image-box',
+    name: '图像目标框标注模板',
+    scene: '目标检测',
+    category: 'CV',
+    fields: 6,
+    usageCount: 3196,
+    updatedAt: '2026-05-16',
+    owner: 'LabelHub',
+    tags: ['矩形框', '类别标签', '批量任务'],
+  },
+  {
+    id: 'hot-llm-eval',
+    name: 'LLM 回复质量评估模板',
+    scene: '模型评测',
+    category: 'LLM',
+    fields: 12,
+    usageCount: 2754,
+    updatedAt: '2026-05-14',
+    owner: 'LabelHub',
+    tags: ['评分量表', '审核意见', '一致性检查'],
+  },
+  {
+    id: 'hot-json-extract',
+    name: '结构化信息抽取模板',
+    scene: '信息抽取',
+    category: 'NLP',
+    fields: 10,
+    usageCount: 1988,
+    updatedAt: '2026-05-12',
+    owner: 'LabelHub',
+    tags: ['JSON', '字段校验', '实体抽取'],
+  },
+]
+
+export const myTemplates: AnnotationTemplate[] = [
+  {
+    id: 'mine-after-sale',
+    name: '售后工单分类模板',
+    scene: '业务分类',
+    category: '私有模板',
+    fields: 7,
+    usageCount: 86,
+    updatedAt: '2026-05-20',
+    owner: 'Admin',
+    tags: ['工单', '优先级', '返工入口'],
+  },
+  {
+    id: 'mine-risk-review',
+    name: '高风险样本复核模板',
+    scene: '人工审核',
+    category: '私有模板',
+    fields: 9,
+    usageCount: 43,
+    updatedAt: '2026-05-19',
+    owner: 'Admin',
+    tags: ['风险项', '审核意见', '时间线'],
+  },
+]
